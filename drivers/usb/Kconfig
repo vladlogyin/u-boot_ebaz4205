@@ -60,7 +60,7 @@ config DM_USB_GADGET
 	  mode)
 
 config SPL_DM_USB_GADGET
-	bool "Enable driver model for USB Gadget in sPL"
+	bool "Enable driver model for USB Gadget in SPL"
 	depends on SPL_DM_USB
 	help
 	  Enable driver model for USB Gadget in SPL
@@ -95,6 +95,7 @@ config USB_STORAGE
 
 config USB_KEYBOARD
 	bool "USB Keyboard support"
+	select DM_KEYBOARD if DM_USB
 	select SYS_STDIO_DEREGISTER
 	---help---
 	  Say Y here if you want to use a USB keyboard for U-Boot command line

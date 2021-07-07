@@ -22,8 +22,10 @@
 #if defined(CONFIG_TARGET_SOCFPGA_GEN5)
 #define CONFIG_SYS_INIT_RAM_ADDR	0xFFFF0000
 #define CONFIG_SYS_INIT_RAM_SIZE	SOCFPGA_PHYS_OCRAM_SIZE
+#define CONFIG_SPL_PAD_TO		0x10000
 #elif defined(CONFIG_TARGET_SOCFPGA_ARRIA10)
 #define CONFIG_SYS_INIT_RAM_ADDR	0xFFE00000
+#define CONFIG_SPL_PAD_TO		0x40000
 /* SPL memory allocation configuration, this is for FAT implementation */
 #ifndef CONFIG_SYS_SPL_MALLOC_SIZE
 #define CONFIG_SYS_SPL_MALLOC_SIZE	0x10000
@@ -146,7 +148,6 @@ unsigned int cm_get_qspi_controller_clk_hz(void);
  * USB Gadget (DFU, UMS)
  */
 #if defined(CONFIG_CMD_DFU) || defined(CONFIG_CMD_USB_MASS_STORAGE)
-#define CONFIG_SYS_DFU_DATA_BUF_SIZE	(16 * 1024 * 1024)
 #define DFU_DEFAULT_POLL_TIMEOUT	300
 
 /* USB IDs */

@@ -11,6 +11,8 @@
 #include <env.h>
 #include <env_internal.h>
 #include <init.h>
+#include <image.h>
+#include <lmb.h>
 #include <log.h>
 #include <net.h>
 #include <sata.h>
@@ -23,6 +25,7 @@
 #include <asm/arch/sys_proto.h>
 #include <asm/arch/psu_init_gpl.h>
 #include <asm/cache.h>
+#include <asm/global_data.h>
 #include <asm/io.h>
 #include <asm/ptrace.h>
 #include <dm/device.h>
@@ -182,7 +185,38 @@ static const struct {
 		.device = 49,
 		.variants = ZYNQMP_VARIANT_DR,
 	},
+	{
+		.id = 0x046d0093,
+		.device = 67,
+		.variants = ZYNQMP_VARIANT_DR,
+	},
 };
+
+static const struct {
+	u32 id;
+	char *name;
+} zynqmp_svd_devices[] = {
+	{
+		.id = 0x04714093,
+		.name = "xck24"
+	},
+	{
+		.id = 0x04724093,
+		.name = "xck26",
+	},
+};
+
+static char *zynqmp_detect_svd_name(u32 idcode)
+{
+	u32 i;
+
+	for (i = 0; i < ARRAY_SIZE(zynqmp_svd_devices); i++) {
+		if (zynqmp_svd_devices[i].id == (idcode & 0x0FFFFFFF))
+			return zynqmp_svd_devices[i].name;
+	}
+
+	return "unknown";
+}
 
 static char *zynqmp_get_silicon_idcode_name(void)
 {
@@ -218,7 +252,7 @@ static char *zynqmp_get_silicon_idcode_name(void)
 	}
 
 	if (i >= ARRAY_SIZE(zynqmp_devices))
-		return "unknown";
+		return zynqmp_detect_svd_name(idcode);
 
 	/* Add device prefix to the name */
 	ret = snprintf(name, ZYNQMP_VERSION_SIZE, "zu%d",
@@ -286,6 +320,17 @@ int board_early_init_f(void)
 	if (ret)
 		return ret;
 
+	/*
+	 * PS_SYSMON_ANALOG_BUS register determines mapping between SysMon
+	 * supply sense channel to SysMon supply registers inside the IP.
+	 * This register must be programmed to complete SysMon IP
+	 * configuration. The default register configuration after
+	 * power-up is incorrect. Hence, fix this by writing the
+	 * correct value - 0x3210.
+	 */
+	writel(ZYNQMP_PS_SYSMON_ANALOG_BUS_VAL,
+	       ZYNQMP_AMS_PS_SYSMON_ANALOG_BUS);
+
 	/* Delay is required for clocks to be propagated */
 	udelay(1000000);
 #endif
@@ -328,6 +373,7 @@ int board_init(void)
 	if (sizeof(CONFIG_ZYNQMP_SPL_PM_CFG_OBJ_FILE) > 1)
 		zynqmp_pmufw_load_config_object(zynqmp_pm_cfg_obj,
 						zynqmp_pm_cfg_obj_size);
+	printf("Silicon version:\t%d\n", zynqmp_get_silicon_version());
 #else
 	if (CONFIG_IS_ENABLED(DM_I2C) && CONFIG_IS_ENABLED(I2C_EEPROM))
 		xilinx_read_eeprom();
@@ -414,6 +460,25 @@ int dram_init(void)
 
 	return 0;
 }
+
+ulong board_get_usable_ram_top(ulong total_size)
+{
+	phys_size_t size;
+	phys_addr_t reg;
+	struct lmb lmb;
+
+	/* found enough not-reserved memory to relocated U-Boot */
+	lmb_init(&lmb);
+	lmb_add(&lmb, gd->ram_base, gd->ram_size);
+	boot_fdt_add_mem_rsv_regions(&lmb, (void *)gd->fdt_blob);
+	size = ALIGN(CONFIG_SYS_MALLOC_LEN + total_size, MMU_SECTION_SIZE),
+	reg = lmb_alloc(&lmb, size, MMU_SECTION_SIZE);
+
+	if (!reg)
+		reg = gd->ram_top - size;
+
+	return reg + size;
+}
 #else
 int dram_init_banksize(void)
 {
@@ -434,7 +499,7 @@ int dram_init(void)
 }
 #endif
 
-void reset_cpu(ulong addr)
+void reset_cpu(void)
 {
 }
 
@@ -495,11 +560,7 @@ static int reset_reason(void)
 
 	env_set("reset_reason", reason);
 
-	ret = zynqmp_mmio_write((ulong)&crlapb_base->reset_reason, ~0, ~0);
-	if (ret)
-		return -EINVAL;
-
-	return ret;
+	return 0;
 }
 
 static int set_fdtfile(void)
@@ -573,7 +634,7 @@ int board_late_init(void)
 	switch (bootmode) {
 	case USB_MODE:
 		puts("USB_MODE\n");
-		mode = "usb";
+		mode = "usb_dfu0 usb_dfu1";
 		env_set("modeboot", "usb_dfu_spl");
 		break;
 	case JTAG_MODE:
@@ -596,10 +657,10 @@ int board_late_init(void)
 			puts("Boot from EMMC but without SD0 enabled!\n");
 			return -1;
 		}
-		debug("mmc0 device found at %p, seq %d\n", dev, dev->seq);
+		debug("mmc0 device found at %p, seq %d\n", dev, dev_seq(dev));
 
 		mode = "mmc";
-		bootseq = dev->seq;
+		bootseq = dev_seq(dev);
 		break;
 	case SD_MODE:
 		puts("SD_MODE\n");
@@ -610,10 +671,10 @@ int board_late_init(void)
 			puts("Boot from SD0 but without SD0 enabled!\n");
 			return -1;
 		}
-		debug("mmc0 device found at %p, seq %d\n", dev, dev->seq);
+		debug("mmc0 device found at %p, seq %d\n", dev, dev_seq(dev));
 
 		mode = "mmc";
-		bootseq = dev->seq;
+		bootseq = dev_seq(dev);
 		env_set("modeboot", "sdboot");
 		break;
 	case SD1_LSHFT_MODE:
@@ -628,10 +689,10 @@ int board_late_init(void)
 			puts("Boot from SD1 but without SD1 enabled!\n");
 			return -1;
 		}
-		debug("mmc1 device found at %p, seq %d\n", dev, dev->seq);
+		debug("mmc1 device found at %p, seq %d\n", dev, dev_seq(dev));
 
 		mode = "mmc";
-		bootseq = dev->seq;
+		bootseq = dev_seq(dev);
 		env_set("modeboot", "sdboot");
 		break;
 	case NAND_MODE:
@@ -648,6 +709,7 @@ int board_late_init(void)
 	if (bootseq >= 0) {
 		bootseq_len = snprintf(NULL, 0, "%i", bootseq);
 		debug("Bootseq len: %x\n", bootseq_len);
+		env_set_hex("bootseq", bootseq);
 	}
 
 	/*
@@ -682,6 +744,41 @@ int checkboard(void)
 {
 	puts("Board: Xilinx ZynqMP\n");
 	return 0;
+}
+
+int mmc_get_env_dev(void)
+{
+	struct udevice *dev;
+	int bootseq = 0;
+
+	switch (zynqmp_get_bootmode()) {
+	case EMMC_MODE:
+	case SD_MODE:
+		if (uclass_get_device_by_name(UCLASS_MMC,
+					      "mmc@ff160000", &dev) &&
+		    uclass_get_device_by_name(UCLASS_MMC,
+					      "sdhci@ff160000", &dev)) {
+			return -1;
+		}
+		bootseq = dev_seq(dev);
+		break;
+	case SD1_LSHFT_MODE:
+	case SD_MODE1:
+		if (uclass_get_device_by_name(UCLASS_MMC,
+					      "mmc@ff170000", &dev) &&
+		    uclass_get_device_by_name(UCLASS_MMC,
+					      "sdhci@ff170000", &dev)) {
+			return -1;
+		}
+		bootseq = dev_seq(dev);
+		break;
+	default:
+		break;
+	}
+
+	debug("bootseq %d\n", bootseq);
+
+	return bootseq;
 }
 
 enum env_location env_get_location(enum env_operation op, int prio)
