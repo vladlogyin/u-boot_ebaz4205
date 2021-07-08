@@ -106,7 +106,6 @@
 		"tftpboot ${devicetree_load_address} ${devicetree_image} && " \
 		"tftpboot ${ramdisk_load_address} ${ramdisk_image} && " \
 		"bootm ${kernel_load_address} ${ramdisk_load_address} ${devicetree_load_address}\0" \
-        	DFU_ALT_INFO \
 		BOOTENV
 
 #endif /* __CONFIG_ZYNQ_EBAZ4205_H */
